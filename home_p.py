@@ -1,103 +1,163 @@
 import sysv_ipc 
+
 import multiprocessing
+
 import os
+
 import time
+
 import random
 
-def home(t, keyh, keym, wValue):
+
+
+def home(keyh, keym, wValue, cont):
+
     
+
     VAL_INIT = 10   #valeur initiale d'énergie
+
     #keyh = 123      #clé pour la queue entre les homes
+
     #keym = 321      #clé pour la queue entre les homes et le market
+
     
+
     
+
     energie = VAL_INIT 
-    delayMax = 5
+
+    delayMax = 10
+
     
+
     mqh = sysv_ipc.MessageQueue(keyh)
+
     mqm = sysv_ipc.MessageQueue(keym)
+
     
+
     
-    while True:
+
+    while cont.value:
+        #production d'energie
         
-        #production d'energie en function du type (les valeurs sont arbitraires,
-        #il faudra probablement les redéfinir )
-        if (t == 1):
-            #energie += random.randint(2,5)
-            production = 2
-            energie += production
-        elif (t == 2):
-            #energie += random.randint(2,5)
-            production = 5
-            energie += production
-        else:
-            #energie += random.randint(2,5)
-            production = 3
-            energie += production
-            
+        #energie += random.randint(2,5)
+
+        production = random.uniform(1,5)
+
+        energie += production
+
         #TODO : lire la valeur de weather avec la memoire partagée (Value)
+
         consommer = wValue.value
-        
+
         #print(consommer,t)
-        
-        
-        if(t == 1):
-            #consommer+=random.randint(2,5)
-            consommer+= 5
-        elif(t == 2):
-            #consommer+=random.randint(2,5)
-            consommer+= 1
-        else:
-            #consommer+=random.randint(2,5)
-            consommer+= 10
-            
-            
+
+
+        #consommer+=random.randint(2,5)
+
+        consommer+= random.uniform(0,2)
+
+       
+
         if(energie-consommer < VAL_INIT):  
-            print("Maison", os.getpid(), "demande",VAL_INIT+consommer-energie, "d'energie aux autres maisons")
+
+           # print("Maison", os.getpid(), "demande",VAL_INIT+consommer-energie, "d'energie aux autres maisons")
+
+            #toSend = str(os.getpid())+"/"+str(-energie+consommer+VAL_INIT)+"/"+str(time.time())
+
+            #mqh.send(toSend.encode(), type = 1) 
+
+            print("Maison", os.getpid(), ": a besoin d'energie:", round(-energie+consommer+VAL_INIT,2))
             
-            toSend = str(os.getpid())+"/"+str(-energie+consommer+VAL_INIT)+"/"+str(time.time())
-            mqh.send(toSend.encode(), type = 1) 
-            
-            #pour demander de l'energie on envoye une valeur negative 
-            #comme message sur la queue, pour distinguer les demandes et les donations
-            #on envoye aussi le pid du processus 
-            #pour avoire un type different pour chaque processus home
-            time.sleep(2)
-            
+            #time.sleep(5)
+
             try:
+                
                 message, tt = mqh.receive(block = False, type = 2)
-            
-            
-                mes = message.decode().parse("/")
+                message = message.decode()
+                
+                mes = message.split("/")
+
                 recu = float(mes[1])
+
                 pidDonneur = mes[0]
+
                 tempsOffre = mes[2]
+
+                #print("Maison", os.getpid(), ": a recu le message:", message, "---> temps =", time.time() - float(tempsOffre))
                 
+                
+
                 if (time.time() - float(tempsOffre)) < delayMax:
+
                     
-                    mqh.send(str(pidDonneur,"/",recu,"/",time.time()).encode(),type=3)
+                    print("Maison", os.getpid(), ": a recu d'energie par la maison ", pidDonneur, round(recu,2))
+                    mqh.send(str(pidDonneur,"/",recu,"/",time.time()).encode(),type=pidDonneur)
+
                     energie+=recu
-                
 
-                
-                
+
             except :
-                print("Pas d'offre d'energie...")
 
-            
+                print("Maison", os.getpid(), ": pas d'offre d'energie...")
+
+
+
             if(energie-consommer < VAL_INIT): 
+
+
+                print("Maison", os.getpid(), "demande au market...")
                 
+                toSend = str(os.getpid())+"/"+str(-energie+consommer+VAL_INIT)
+                mqm.send(toSend.encode(), type = 2)
                 
-                print("Demande au market...")
-                
-                
-                
-                #mqm.send(str(energie-consommer-VAL_INIT).encode(), type = os.getpid()+3)
-                #message, tt = mqm.receive(block = true, type = os.getpid()+3)
+                #time.sleep(delayMax)
+
+                print("Maison", os.getpid(), ": attende l'energie du market")
+                message, tt = mqm.receive(block = True, type = os.getpid())
+
                 #c'est necessaire faire une "receive" qui est bloquant,
                 #parce que la home ne peut pas consommer sans recevoire l'energie
-            
-                #recu = int(message.decode())
-                #energie+=recu
-            
+                mes = message.decode().split("/")
+                recu = float(mes[0])
+                
+                print("Maison", os.getpid()," :reçu",round(recu,2),"d'energie du market")
+
+                energie+=recu
+                
+        #consommation
+        energie-= consommer
         
+        
+        #je vois si j'ai de l'energie en plus
+        plus = energie-VAL_INIT
+        
+        if plus >= 1:
+            
+            print("Maison", os.getpid(), "offre son plus d'energie :", round(plus,2))
+            toSend = str(os.getpid())+"/"+str(plus)+"/"+str(time.time())
+            mqh.send(toSend.encode(), type = 2)
+            
+            time.sleep(10)
+            
+            try:
+                message, tt = mqh.receive(block = False, type = os.getpid())
+                energie -= plus
+                print("Maison", os.getpid(), ": a envoyé",round(plus,2),"à une autre maison")
+            
+            except:
+                
+                print("Maison", os.getpid(), "vend son plus d'energie au market:", round(plus,2))
+                toSend = str(os.getpid())+"/"+str(plus)
+                mqm.send(toSend.encode(), type = 1)
+                message, tt = mqm.receive(block = True, type = os.getpid())
+                
+                message = message.decode()
+                mes = message.split("/")
+                
+                if int(mes[1] == 1):
+                    energie -= float(mes[0])
+                
+            
+            
